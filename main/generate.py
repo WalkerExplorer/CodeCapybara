@@ -192,21 +192,9 @@ def main(
                           for s in output_ids]
         output_strings.extend(batch_output_strings)
 
-    filepath = create_filepath(os.path.join(output_dir, "generation.jsonl"))
-    with open(filepath, "w") as f:
-        for j, output_str in enumerate(output_strings):
-            if output_str == "":
-                continue
-            task_id = task_ids[j//num_return_sequences]
-            if dataset_name == "mbpp":
-                output_str = prompter.get_response(output_str)
-                json.dump({"task_id": task_id, "trg_prediction": output_str, "rank": local_rank}, f)
-            elif dataset_name == "humaneval":
-                json.dump({"task_id": task_id, "completion": output_str, "rank": local_rank}, f)
-            f.write("\n")
+    print("Generated Code:")
+    for generated_code in output_strings:
+        print(generated_code)
 
-    print("Rank {} finished. Predictions saved to {}".format(local_rank, filepath))
- 
 if __name__ == "__main__":
     fire.Fire(main)
-
