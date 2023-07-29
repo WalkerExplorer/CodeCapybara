@@ -118,9 +118,6 @@ def main(
 
     tokenizer.padding_size = "left"
 
-    if not load_8bit:
-        model.haft()
-
     if ddp:
         model = DDP(model, device_ids=[local_rank])
 
