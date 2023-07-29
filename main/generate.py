@@ -34,7 +34,7 @@ def main(
         tokenizer: str = "",
         lora_weights: str = "tloen/alpaca-lora-7b",
         prompt_template: str = "",
-		batch_size: int = 4,
+		batch_size: int = 2,
         temperature=0.1,
         top_p=0.75,
         top_k=40,
