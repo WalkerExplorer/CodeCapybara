@@ -21,7 +21,7 @@ else:
     device = "cpu"
 
 try:
-    if  torch.backends.mps.is_available():
+    if torch.backends.mps.is_available():
         device = "mps"
 except:
     pass
@@ -34,13 +34,12 @@ def main(
         tokenizer: str = "",
         lora_weights: str = "tloen/alpaca-lora-7b",
         prompt_template: str = "",
-		batch_size: int = 64,
+        batch_size: int = 64,
         temperature=0.1,
         top_p=0.75,
         top_k=40,
         num_return_sequences: int = 1,
-
-        ):
+):
     base_model = base_model or os.environ.get("BASE_MODEL", "")
     assert (
         base_model
