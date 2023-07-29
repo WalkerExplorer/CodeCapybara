@@ -67,7 +67,6 @@ def main(
         tokenizer = LlamaTokenizer.from_pretrained(base_model)
     else:
         tokenizer = LlamaTokenizer.from_pretrained(tokenizer)
-
     if lora_weights is None or lora_weights == "":
         model = LlamaForCausalLM.from_pretrained(
                 base_model,
@@ -99,6 +98,12 @@ def main(
         state_dict.update(pretrained_dict)
         model.load_state_dict(state_dict)
     else:
+        model = LlamaForCausalLM.from_pretrained(
+                base_model,
+                load_in_8bit=load_8bit,
+                torch_dtype=torch.float16,
+                device_map=device_map,
+                )
         model = PeftModel.from_pretrained(
                 model,
                 lora_weights,
@@ -169,7 +174,7 @@ def main(
                     )
 
             with torch.no_grad():
-                output_ids = model.module.generate(
+                output_ids = model.generate(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         generation_config=generation_config,
