@@ -112,6 +112,11 @@ def main(
             device_map=device_map,
         )
 
+        if ddp:
+            # Move the model evaluation inside the DDP wrapper
+            model = model.to(device)
+            model.eval()
+
     # unwind broken decapoda-research config
     model.config.pad_token_id = tokenizer.pad_token_id = 0
     model.config.bos_token_id = 1
@@ -119,7 +124,6 @@ def main(
 
     tokenizer.padding_size = "left"
 
-    model.eval()
     if torch.__version__ >= "2" and sys.platform != "win32":
         model = torch.compile(model)
 
