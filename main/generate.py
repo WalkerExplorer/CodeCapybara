@@ -1,14 +1,11 @@
 import os
 import sys
-import re
 from tqdm import tqdm
 import json
 import math
 
 import fire
 import torch
-import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel as DDP
 from peft import PeftModel, get_peft_model, LoraConfig
 from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
 
@@ -145,18 +142,10 @@ def main(
         inputs = tokenizer(batch_prompts, 
                            truncation=False,
                            padding=False,
+                           return_tensors="pt",
                            )
-        input_ids = inputs["input_ids"]
-        batch_max_length = max(len(_input_ids) for _input_ids in input_ids)
-        new_input_ids, attention_mask = [], []
-        for _input_ids in input_ids:
-            padding_size = batch_max_length - len(_input_ids)
-            new_input_ids.append([tokenizer.pad_token_id]*padding_size + _input_ids)
-            attention_mask.append([False]*padding_size + [True]*len(_input_ids))
-        input_ids = torch.LongTensor(new_input_ids)
-        input_ids = input_ids.to(device)
-        attention_mask = torch.BoolTensor(attention_mask)
-        attention_mask = attention_mask.to(device)
+        input_ids = inputs["input_ids"].to(device)
+        attention_mask = inputs["attention_mask"].to(device)
 
         this_batch_size = input_ids.shape[0]
 
@@ -170,7 +159,7 @@ def main(
                     )
 
             with torch.no_grad():
-                output_ids = model.module.generate(
+                output_ids = model.generate(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         generation_config=generation_config,
