@@ -102,6 +102,7 @@ def main(
         )
 
         if ddp:
+            # Wrap the model with DDP if using distributed training
             model = DDP(model, device_ids=[local_rank])
 
         model = PeftModel.from_pretrained(
