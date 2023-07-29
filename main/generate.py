@@ -139,11 +139,13 @@ def main(
     for idx in tqdm(range(0, len(prompts), batch_size), desc="Rank {}".format(local_rank)):
         batch_prompts = prompts[batch_size*idx:batch_size*(idx+1)]
         # tokenization
-        inputs = tokenizer(batch_prompts, 
-                           truncation=False,
-                           padding=False,
-                           return_tensors="pt",
-                           )
+        inputs = tokenizer(
+            batch_prompts,
+            padding="max_length",
+            truncation=True,
+            max_length=128,
+            return_tensors="pt",
+        )
         input_ids = inputs["input_ids"].to(device)
         attention_mask = inputs["attention_mask"].to(device)
 
@@ -151,30 +153,30 @@ def main(
 
         try:
             generation_config = GenerationConfig(
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    do_sample=True,
-                    num_return_sequences=num_return_sequences,
-                    )
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                do_sample=True,
+                num_return_sequences=num_return_sequences,
+            )
 
             with torch.no_grad():
                 output_ids = model.generate(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        generation_config=generation_config,
-                        return_dict_in_generate=False,
-                        max_new_tokens=128,
-                        )
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    generation_config=generation_config,
+                    return_dict_in_generate=False,
+                    max_new_tokens=128,
+                )
         except torch.cuda.OutOfMemoryError:
             print("Rank {} out of memory ... continue ...".format(local_rank))
             torch.cuda.empty_cache()
             output_strings.extend([""]*(this_batch_size*num_return_sequences))
             continue
         batch_output_strings = [tokenizer.decode(s,
-                                           skip_special_tokens=True,
-                                           ignore_tokenization_space=True)
-                          for s in output_ids]
+            skip_special_tokens=True,
+            ignore_tokenization_space=True)
+            for s in output_ids]
         output_strings.extend(batch_output_strings)
 
     print("Generated Code:")
