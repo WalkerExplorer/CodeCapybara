@@ -1,11 +1,14 @@
 import os
 import sys
+import re
 from tqdm import tqdm
 import json
 import math
 
 import fire
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from peft import PeftModel, get_peft_model, LoraConfig
 from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer
 
@@ -18,7 +21,7 @@ else:
     device = "cpu"
 
 try:
-    if torch.backends.mps.is_available():
+    if  torch.backends.mps.is_available():
         device = "mps"
 except:
     pass
@@ -31,12 +34,13 @@ def main(
         tokenizer: str = "",
         lora_weights: str = "tloen/alpaca-lora-7b",
         prompt_template: str = "",
-        batch_size: int = 1,
+		batch_size: int = 4,
         temperature=0.1,
         top_p=0.75,
         top_k=40,
         num_return_sequences: int = 1,
-):
+
+        ):
     base_model = base_model or os.environ.get("BASE_MODEL", "")
     assert (
         base_model
@@ -114,6 +118,9 @@ def main(
 
     tokenizer.padding_size = "left"
 
+    if not load_8bit:
+        model.haft()
+
     if ddp:
         model = DDP(model, device_ids=[local_rank])
 
@@ -139,49 +146,66 @@ def main(
     for idx in tqdm(range(0, len(prompts), batch_size), desc="Rank {}".format(local_rank)):
         batch_prompts = prompts[batch_size*idx:batch_size*(idx+1)]
         # tokenization
-        inputs = tokenizer(
-            batch_prompts,
-            padding="max_length",
-            truncation=True,
-            max_length=128,
-            return_tensors="pt",
-        )
-        input_ids = inputs["input_ids"].to(device)
-        attention_mask = inputs["attention_mask"].to(device)
+        inputs = tokenizer(batch_prompts, 
+                           truncation=False,
+                           padding=False,
+                           )
+        input_ids = inputs["input_ids"]
+        batch_max_length = max(len(_input_ids) for _input_ids in input_ids)
+        new_input_ids, attention_mask = [], []
+        for _input_ids in input_ids:
+            padding_size = batch_max_length - len(_input_ids)
+            new_input_ids.append([tokenizer.pad_token_id]*padding_size + _input_ids)
+            attention_mask.append([False]*padding_size + [True]*len(_input_ids))
+        input_ids = torch.LongTensor(new_input_ids)
+        input_ids = input_ids.to(device)
+        attention_mask = torch.BoolTensor(attention_mask)
+        attention_mask = attention_mask.to(device)
 
         this_batch_size = input_ids.shape[0]
 
         try:
             generation_config = GenerationConfig(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                do_sample=True,
-                num_return_sequences=num_return_sequences,
-            )
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    do_sample=True,
+                    num_return_sequences=num_return_sequences,
+                    )
 
             with torch.no_grad():
-                output_ids = model.generate(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    generation_config=generation_config,
-                    return_dict_in_generate=False,
-                    max_new_tokens=128,
-                )
+                output_ids = model.module.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        generation_config=generation_config,
+                        return_dict_in_generate=False,
+                        max_new_tokens=128,
+                        )
         except torch.cuda.OutOfMemoryError:
             print("Rank {} out of memory ... continue ...".format(local_rank))
             torch.cuda.empty_cache()
             output_strings.extend([""]*(this_batch_size*num_return_sequences))
             continue
         batch_output_strings = [tokenizer.decode(s,
-            skip_special_tokens=True,
-            ignore_tokenization_space=True)
-            for s in output_ids]
+                                           skip_special_tokens=True,
+                                           ignore_tokenization_space=True)
+                          for s in output_ids]
         output_strings.extend(batch_output_strings)
 
-    print("Generated Code:")
-    for generated_code in output_strings:
-        print(generated_code)
+    filepath = create_filepath(os.path.join(output_dir, "generation.jsonl"))
+    with open(filepath, "w") as f:
+        for j, output_str in enumerate(output_strings):
+            if output_str == "":
+                continue
+            task_id = task_ids[j//num_return_sequences]
+            if dataset_name == "mbpp":
+                output_str = prompter.get_response(output_str)
+                json.dump({"task_id": task_id, "trg_prediction": output_str, "rank": local_rank}, f)
+            elif dataset_name == "humaneval":
+                json.dump({"task_id": task_id, "completion": output_str, "rank": local_rank}, f)
+            f.write("\n")
 
+    print("Rank {} finished. Predictions saved to {}".format(local_rank, filepath))
+ 
 if __name__ == "__main__":
     fire.Fire(main)
